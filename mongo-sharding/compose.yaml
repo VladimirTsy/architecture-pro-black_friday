@@ -1,0 +1,59 @@
+name: mongo-sharding
+
+services:
+  # --- СЕРВЕР КОНФИГУРАЦИИ (Хранит карту данных кластера) ---
+  configSrv:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: configSrv
+    command: mongod --configsvr --replSet configReplSet --port 27019 --bind_ip_all
+    volumes:
+      - config_data:/data/configdb
+
+  # --- ШАРД 1 (Хранит первую половину данных) ---
+  shard1:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: shard1
+    command: mongod --shardsvr --replSet shard1ReplSet --port 27018 --bind_ip_all
+    volumes:
+      - shard1_data:/data/db
+
+  # --- ШАРД 2 (Хранит вторую половину данных) ---
+  shard2:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: shard2
+    command: mongod --shardsvr --replSet shard2ReplSet --port 27017 --bind_ip_all
+    volumes:
+      - shard2_data:/data/db
+
+  # --- РОУТЕР MONGOS (Единая точка входа для приложения) ---
+  mongos:
+    image: dh-mirror.gitverse.ru/mongo:latest
+    container_name: mongos
+    command: mongos --configdb configReplSet/configSrv:27019 --port 27017 --bind_ip_all
+    ports:
+      - "27017:27017"
+    depends_on:
+      - configSrv
+      - shard1
+      - shard2
+
+  # --- ПРИЛОЖЕНИЕ ---
+  pymongo_api:
+    container_name: pymongo_api
+    build:
+      context: api_app
+      dockerfile: Dockerfile
+    depends_on:
+      - mongos
+    ports:
+      - 8080:8080
+    environment:
+      # Приложение теперь шлет запросы на роутер mongos
+      MONGODB_URL: "mongodb://mongos:27017"
+      MONGODB_DATABASE_NAME: "somedb"
+
+volumes:
+  config_data:
+  shard1_data:
+  shard2_data:
+
